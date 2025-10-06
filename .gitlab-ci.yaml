@@ -1,0 +1,79 @@
+variables:
+  VAR_AWS_ACCOUNTS: 
+    description: "Leave it empty if you want to run on all accounts. \nOR Enter comma-separated lists of account-ids to target specific accounts. e.g. 276249252095,587946681758,326358521766"
+    value: "123456789012"
+
+  ACTION: 
+    description: "Action to perform: START/STOP"
+    options:
+    - "start"
+    - "stop"
+    value: "start"
+  INSTANCE:
+    description: "EC2 instance ID or NAME to start/stop."
+    value: ""
+  TARGET_SCHEDULE:
+    description: "Instance Schedule in IST/PST."
+    value: ""
+
+include:
+  # include the component located in the current project from the current SHA
+  - component: $CI_SERVER_FQDN/aws-crawler/aws-crawler@0.0.6
+
+default:
+  tags:
+  - gitlabrunner
+
+
+
+stages:
+  - identify
+  - start-stop
+
+identify_ec2:
+  extends: .run              # .run is the hidden job in base component.
+  stage: identify                       
+  variables:
+    CUSTOM_SCRIPT: identify-ec2.py
+    AWS_ACCOUNTS: $VAR_AWS_ACCOUNTS
+  artifacts:
+    paths:
+      - eligible-ec2.json
+    expire_in: 1 week
+  before_script:
+  - pip3 install tabulate boto3
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: always
+    - if: $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH
+      when: manual
+
+      
+start_stop_ec2:
+  extends: .run                           # .run is the hidden job in base component.
+  stage: start-stop
+  variables:
+    CUSTOM_SCRIPT: start-stop-ec2.py 
+    AWS_ACCOUNTS: $VAR_AWS_ACCOUNTS
+  artifacts:
+    paths:
+      - processed-ec2.json
+    expire_in: 1 week
+  dependencies:
+    - identify_ec2
+  before_script:
+    - pip3 install tabulate boto3
+    - |
+      if [[ -z "$ACTION" || ( "$ACTION" != "start" && "$ACTION" != "stop" ) ]]; then
+        echo "Error: ACTION variable is required and must be set to 'start' or 'stop'."
+        exit 1
+      fi
+      if [[ -z "$INSTANCE" ]]; then
+        echo "Error: INSTANCE variable is required. Please provide an instance ID or name."
+        exit 1
+      fi
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: always
+    - if: $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH
+      when: manual
